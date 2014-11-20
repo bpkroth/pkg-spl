@@ -13,6 +13,7 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/buf.h \
 	$(top_srcdir)/include/sys/byteorder.h \
 	$(top_srcdir)/include/sys/callb.h \
+	$(top_srcdir)/include/sys/callo.h \
 	$(top_srcdir)/include/sys/cmn_err.h \
 	$(top_srcdir)/include/sys/compress.h \
 	$(top_srcdir)/include/sys/condvar.h \
@@ -89,7 +90,6 @@ KERNEL_H = \
 	$(top_srcdir)/include/sys/u8_textprep.h \
 	$(top_srcdir)/include/sys/uio.h \
 	$(top_srcdir)/include/sys/unistd.h \
-	$(top_srcdir)/include/sys/utsname.h \
 	$(top_srcdir)/include/sys/va_list.h \
 	$(top_srcdir)/include/sys/varargs.h \
 	$(top_srcdir)/include/sys/vfs.h \
@@ -104,7 +104,7 @@ USER_H =
 EXTRA_DIST = $(COMMON_H) $(KERNEL_H) $(USER_H)
 
 if CONFIG_KERNEL
-kerneldir = /usr/src/spl-$(VERSION)/include/sys
+kerneldir = @prefix@/src/spl-$(VERSION)/include/sys
 kernel_HEADERS = $(KERNEL_H)
 endif
 

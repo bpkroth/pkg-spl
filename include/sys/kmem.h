@@ -74,27 +74,27 @@
  * ship a kernel with CONFIG_RT_MUTEX_TESTER disabled.
  */
 #if !defined(CONFIG_RT_MUTEX_TESTER) && defined(PF_MUTEX_TESTER)
-# define PF_NOFS			PF_MUTEX_TESTER
+#define	PF_NOFS	PF_MUTEX_TESTER
 
 static inline void
 sanitize_flags(struct task_struct *p, gfp_t *flags)
 {
 	if (unlikely((p->flags & PF_NOFS) && (*flags & (__GFP_IO|__GFP_FS)))) {
-# ifdef NDEBUG
-		SDEBUG_LIMIT(SD_CONSOLE | SD_WARNING, "Fixing allocation for "
-		   "task %s (%d) which used GFP flags 0x%x with PF_NOFS set\n",
-		    p->comm, p->pid, flags);
-		spl_debug_dumpstack(p);
+#ifdef NDEBUG
+		printk(KERN_WARNING "Fixing allocation for task %s (%d) "
+		    "which used GFP flags 0x%x with PF_NOFS set\n",
+		    p->comm, p->pid, *flags);
+		spl_dumpstack();
 		*flags &= ~(__GFP_IO|__GFP_FS);
-# else
+#else
 		PANIC("FATAL allocation for task %s (%d) which used GFP "
-		    "flags 0x%x with PF_NOFS set\n", p->comm, p->pid, flags);
-# endif /* NDEBUG */
+		    "flags 0x%x with PF_NOFS set\n", p->comm, p->pid, *flags);
+#endif /* NDEBUG */
 	}
 }
 #else
-# define PF_NOFS			0x00000000
-# define sanitize_flags(p, fl)		((void)0)
+#define PF_NOFS			0x00000000
+#define sanitize_flags(p, fl)	((void)0)
 #endif /* !defined(CONFIG_RT_MUTEX_TESTER) && defined(PF_MUTEX_TESTER) */
 
 /*
@@ -135,7 +135,6 @@ kzalloc_nofail(size_t size, gfp_t flags)
 static inline void *
 kmalloc_node_nofail(size_t size, gfp_t flags, int node)
 {
-#ifdef HAVE_KMALLOC_NODE
 	void *ptr;
 
 	sanitize_flags(current, &flags);
@@ -145,9 +144,6 @@ kmalloc_node_nofail(size_t size, gfp_t flags, int node)
 	} while (ptr == NULL && (flags & __GFP_WAIT));
 
 	return ptr;
-#else
-	return kmalloc_nofail(size, flags);
-#endif /* HAVE_KMALLOC_NODE */
 }
 
 static inline void *
@@ -340,8 +336,9 @@ enum {
 	KMC_BIT_QCACHE		= 4,	/* XXX: Unsupported */
 	KMC_BIT_KMEM		= 5,	/* Use kmem cache */
 	KMC_BIT_VMEM		= 6,	/* Use vmem cache */
-	KMC_BIT_OFFSLAB		= 7,	/* Objects not on slab */
-	KMC_BIT_NOEMERGENCY	= 8,	/* Disable emergency objects */
+	KMC_BIT_SLAB		= 7,	/* Use Linux slab cache */
+	KMC_BIT_OFFSLAB		= 8,	/* Objects not on slab */
+	KMC_BIT_NOEMERGENCY	= 9,	/* Disable emergency objects */
 	KMC_BIT_DEADLOCKED      = 14,	/* Deadlock detected */
 	KMC_BIT_GROWING         = 15,   /* Growing in progress */
 	KMC_BIT_REAPING		= 16,	/* Reaping in progress */
@@ -367,6 +364,7 @@ typedef enum kmem_cbrc {
 #define KMC_QCACHE		(1 << KMC_BIT_QCACHE)
 #define KMC_KMEM		(1 << KMC_BIT_KMEM)
 #define KMC_VMEM		(1 << KMC_BIT_VMEM)
+#define KMC_SLAB		(1 << KMC_BIT_SLAB)
 #define KMC_OFFSLAB		(1 << KMC_BIT_OFFSLAB)
 #define KMC_NOEMERGENCY		(1 << KMC_BIT_NOEMERGENCY)
 #define KMC_DEADLOCKED		(1 << KMC_BIT_DEADLOCKED)
@@ -383,6 +381,8 @@ typedef enum kmem_cbrc {
 #define KMC_EXPIRE_AGE		0x1     /* Due to age */
 #define KMC_EXPIRE_MEM		0x2     /* Due to low memory */
 
+#define	KMC_RECLAIM_ONCE	0x1	/* Force a single shrinker pass */
+
 extern unsigned int spl_kmem_cache_expire;
 extern struct list_head spl_kmem_cache_list;
 extern struct rw_semaphore spl_kmem_cache_sem;
@@ -395,7 +395,7 @@ extern struct rw_semaphore spl_kmem_cache_sem;
 #define SPL_KMEM_CACHE_DELAY		15	/* Minimum slab release age */
 #define SPL_KMEM_CACHE_REAP		0	/* Default reap everything */
 #define SPL_KMEM_CACHE_OBJ_PER_SLAB	16	/* Target objects per slab */
-#define SPL_KMEM_CACHE_OBJ_PER_SLAB_MIN	8	/* Minimum objects per slab */
+#define SPL_KMEM_CACHE_OBJ_PER_SLAB_MIN	1	/* Minimum objects per slab */
 #define SPL_KMEM_CACHE_ALIGN		8	/* Default object alignment */
 
 #define POINTER_IS_VALID(p)		0	/* Unimplemented */
@@ -456,6 +456,7 @@ typedef struct spl_kmem_cache {
 	spl_kmem_reclaim_t	skc_reclaim;	/* Reclaimator */
 	void			*skc_private;	/* Private data */
 	void			*skc_vmp;	/* Unused */
+	struct kmem_cache	*skc_linux_cache; /* Linux slab cache if used */
 	unsigned long		skc_flags;	/* Flags */
 	uint32_t		skc_obj_size;	/* Object size */
 	uint32_t		skc_obj_align;	/* Object alignment */
@@ -497,7 +498,6 @@ extern void spl_kmem_cache_free(spl_kmem_cache_t *skc, void *obj);
 extern void spl_kmem_cache_reap_now(spl_kmem_cache_t *skc, int count);
 extern void spl_kmem_reap(void);
 
-int spl_kmem_init_kallsyms_lookup(void);
 int spl_kmem_init(void);
 void spl_kmem_fini(void);
 
@@ -512,5 +512,25 @@ void spl_kmem_fini(void);
 #define kmem_reap()			spl_kmem_reap()
 #define kmem_virt(ptr)			(((ptr) >= (void *)VMALLOC_START) && \
 					 ((ptr) <  (void *)VMALLOC_END))
+
+/*
+ * Allow custom slab allocation flags to be set for KMC_SLAB based caches.
+ * One use for this function is to ensure the __GFP_COMP flag is part of
+ * the default allocation mask which ensures higher order allocations are
+ * properly refcounted.  This flag was added to the default ->allocflags
+ * as of Linux 3.11.
+ */
+static inline void
+kmem_cache_set_allocflags(spl_kmem_cache_t *skc, gfp_t flags)
+{
+	if (skc->skc_linux_cache == NULL)
+		return;
+
+#if defined(HAVE_KMEM_CACHE_ALLOCFLAGS)
+	skc->skc_linux_cache->allocflags |= flags;
+#elif defined(HAVE_KMEM_CACHE_GFPFLAGS)
+	skc->skc_linux_cache->gfpflags |= flags;
+#endif
+}
 
 #endif	/* _SPL_KMEM_H */
